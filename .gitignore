@@ -1,0 +1,18 @@
+# Exclude everything by default, then whitelist what's safe to publish
+*
+
+# Pipeline scripts
+!build_hvac.py
+!build_dashboard.py
+
+# Generated output
+!index.html
+!payload.json
+
+# Repo files
+!.gitignore
+!README.md
+
+# Python cache
+__pycache__/
+*.pyc
