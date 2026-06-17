@@ -37,7 +37,7 @@ DATA_DIR   = Path(__file__).parent / "sensor_data"
 OUTPUT_DIR = Path(__file__).parent
 
 START_DATE = "2026-04-01"
-END_DATE   = "2026-06-14"   # inclusive — stop at yesterday to avoid forecast data
+END_DATE   = "2026-06-17"   # inclusive — sensor data through noon today
 
 RELOC_DATE      = "2026-05-16"   # sensor relocation: Heath/Eddie move into living room
 PTAC_DATE       = "2026-05-18"   # new PTACs installed
