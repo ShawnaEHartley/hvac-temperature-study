@@ -2,7 +2,7 @@
 
 A self-contained data dashboard documenting 75 days of indoor temperature monitoring in a top-floor NYC luxury high-rise with PTAC units.
 
-**[View the dashboard →](https://shawna.dev/hvac-temperature-study)**
+**[View the dashboard →](https://www.shawna.dev/hvac-temperature-study/)**
 
 ## What this is
 
