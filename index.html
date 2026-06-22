@@ -514,9 +514,10 @@ function setActiveKd(id) {
 
 function toggleSensor(key) {
   const allKeys = [...SENSORS.map(s => s.key), OUTDOOR.key];
-  const soloAlready = vis[key] && allKeys.every(k => vis[k] === (k === key));
+  vis[key] = !vis[key];
+  // if everything is now off, reset to all on
+  if (!allKeys.some(k => vis[k])) allKeys.forEach(k => { vis[k] = true; });
   allKeys.forEach(k => {
-    vis[k] = soloAlready ? true : (k === key);
     const b = document.getElementById('tog-' + k);
     if (b) b.classList.toggle('off', !vis[k]);
   });
