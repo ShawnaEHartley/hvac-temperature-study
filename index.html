@@ -514,9 +514,16 @@ function setActiveKd(id) {
 
 function toggleSensor(key) {
   const allKeys = [...SENSORS.map(s => s.key), OUTDOOR.key];
-  vis[key] = !vis[key];
-  // if everything is now off, reset to all on
-  if (!allKeys.some(k => vis[k])) allKeys.forEach(k => { vis[k] = true; });
+  const allOn = allKeys.every(k => vis[k]);
+  if (allOn) {
+    // from default state: solo the clicked sensor
+    allKeys.forEach(k => { vis[k] = (k === key); });
+  } else {
+    // already in a selection: toggle just this one
+    vis[key] = !vis[key];
+    // if everything is now off, reset to all on
+    if (!allKeys.some(k => vis[k])) allKeys.forEach(k => { vis[k] = true; });
+  }
   allKeys.forEach(k => {
     const b = document.getElementById('tog-' + k);
     if (b) b.classList.toggle('off', !vis[k]);
