@@ -13,6 +13,7 @@
 html{font-size:16px}
 body{font-family:'Georgia',serif;background:#F7F4EE;color:#2C2416;line-height:1.7;min-height:100vh}
 a{color:#7A6A56;text-decoration:underline;text-underline-offset:3px}
+code{overflow-wrap:anywhere;word-break:break-word}
 
 /* ── Layout ── */
 .page{max-width:960px;margin:0 auto;padding:0 24px 80px}
@@ -156,6 +157,28 @@ body{overflow-x:hidden}
   .hyp-section{padding:20px 18px}
   .build-block{padding:18px 18px}
 }
+
+/* ── Range calendar ── */
+.range-row{position:relative}
+#range-trigger{white-space:nowrap;text-align:left}
+.cal-pop{position:absolute;top:100%;left:0;z-index:60;margin-top:6px;background:#FEFCF9;border:1px solid #D8D0C4;border-radius:6px;box-shadow:0 6px 24px rgba(0,0,0,.14);padding:12px;width:290px;max-width:calc(100vw - 32px)}
+.cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.cal-head span{font-size:.85rem;color:#2C2416;letter-spacing:.04em}
+.cal-nav{background:none;border:1px solid #D8D0C4;border-radius:4px;width:30px;height:30px;font-size:1.1rem;line-height:1;color:#7A6A56;cursor:pointer}
+.cal-nav:hover{background:#EEE8DE}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.cal-dow{font-size:.66rem;color:#9A8A76;text-align:center;padding:3px 0}
+.cal-day{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:.8rem;color:#3A3026;border-radius:4px;cursor:pointer;border:none;background:none;font-family:inherit;padding:0}
+.cal-day:hover{background:#EEE8DE}
+.cal-day.blank{visibility:hidden;pointer-events:none}
+.cal-day.disabled{color:#D8D0C4;cursor:default;pointer-events:none;background:none}
+.cal-day.in-range{background:#EDE4D3;border-radius:0}
+.cal-day.sel{background:#2C2416;color:#F7F4EE;border-radius:4px}
+.cal-foot{display:flex;align-items:center;justify-content:space-between;margin-top:10px}
+#cal-hint{font-size:.72rem;color:#9A8A76}
+.cal-full{background:none;border:1px solid #D8D0C4;border-radius:4px;padding:5px 10px;font-family:inherit;font-size:.72rem;color:#7A6A56;cursor:pointer}
+.cal-full:hover{background:#EEE8DE}
+@media (max-width:640px){ .cal-day{font-size:.9rem} .cal-nav{width:34px;height:34px} }
 </style>
 </head>
 <body>
@@ -249,11 +272,21 @@ body{overflow-x:hidden}
       <span style="font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:#9A8A76;margin-right:2px">Sensors</span>
       <div class="ctrl-group" id="sensor-toggles"></div>
     </div>
-    <div class="controls" style="gap:8px;margin-top:-6px">
+    <div class="controls range-row" style="gap:8px;margin-top:-6px">
       <span style="font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:#9A8A76">Range</span>
-      <input type="date" id="date-start" class="date-input" onchange="applyDateRange()">
-      <span style="font-size:.78rem;color:#9A8A76">–</span>
-      <input type="date" id="date-end" class="date-input" onchange="applyDateRange()">
+      <button type="button" id="range-trigger" class="date-input" onclick="toggleCal(event)">—</button>
+      <div id="cal-pop" class="cal-pop" hidden>
+        <div class="cal-head">
+          <button type="button" class="cal-nav" onclick="calShift(-1)" aria-label="Previous month">&#8249;</button>
+          <span id="cal-title"></span>
+          <button type="button" class="cal-nav" onclick="calShift(1)" aria-label="Next month">&#8250;</button>
+        </div>
+        <div class="cal-grid" id="cal-grid"></div>
+        <div class="cal-foot">
+          <span id="cal-hint">Tap start date</span>
+          <button type="button" class="cal-full" onclick="calFull()">Full study</button>
+        </div>
+      </div>
     </div>
     <div class="controls" id="axis-row" style="gap:8px;margin-top:-6px">
       <span style="font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:#9A8A76">Y-axis</span>
@@ -330,7 +363,7 @@ body{overflow-x:hidden}
         </div>
         <div class="build-block">
           <h3>Outdoor weather</h3>
-          <p>Open-Meteo Historical Forecast API. 15-minute cadence (<code>minutely_15=temperature_2m,relative_humidity_2m</code>), Fahrenheit, aligned to America/New_York timezone — matching the indoor sensor cadence directly. Coordinates supplied as a build-time input only; not stored in any output.</p>
+          <p>Open-Meteo Historical Forecast API — 15-minute cadence, outdoor temperature and humidity, in Fahrenheit and aligned to the America/New_York timezone to match the indoor sensor cadence directly. Coordinates are supplied as a build-time input only and never stored in any output.</p>
         </div>
       </div>
 
@@ -692,9 +725,79 @@ function toggleSensor(key) {
   draw();
 }
 
-function applyDateRange() {
-  const s = document.getElementById('date-start').value;
-  const e = document.getElementById('date-end').value;
+// ── Range calendar (single popover: tap start, then end) ────────────────────
+const MIN_DATE = DATA.labels[0].slice(0, 10);
+const MAX_DATE = DATA.labels[N - 1].slice(0, 10);
+const CAL_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+let calY = 0, calM = 0;         // month on display
+let selStart = null, selEnd = null;
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+function ymd(y, m, d) { return `${y}-${pad2(m + 1)}-${pad2(d)}`; }
+
+// Refresh the range button label (keeps the old function name for existing callers)
+function syncDateInputs() {
+  const s = DATA.labels[viewStart].slice(0, 10);
+  const e = DATA.labels[viewEnd].slice(0, 10);
+  document.getElementById('range-trigger').textContent =
+    fmtDate(s + 'T00:00') + ' – ' + fmtDate(e + 'T00:00');
+}
+
+function toggleCal(e) {
+  if (e) e.stopPropagation();
+  const pop = document.getElementById('cal-pop');
+  if (pop.hidden) openCal(); else pop.hidden = true;
+}
+function openCal() {
+  selStart = DATA.labels[viewStart].slice(0, 10);
+  selEnd   = DATA.labels[viewEnd].slice(0, 10);
+  const p = selStart.split('-').map(Number);
+  calY = p[0]; calM = p[1] - 1;
+  document.getElementById('cal-hint').textContent = 'Tap start date';
+  document.getElementById('cal-pop').hidden = false;
+  renderCal();
+}
+function calShift(dir) {
+  calM += dir;
+  if (calM < 0) { calM = 11; calY--; }
+  if (calM > 11) { calM = 0; calY++; }
+  renderCal();
+}
+function renderCal() {
+  document.getElementById('cal-title').textContent = `${CAL_MONTHS[calM]} ${calY}`;
+  const firstDow = new Date(calY, calM, 1).getDay();
+  const dim = new Date(calY, calM + 1, 0).getDate();
+  let h = ['S','M','T','W','T','F','S'].map(d => `<div class="cal-dow">${d}</div>`).join('');
+  for (let i = 0; i < firstDow; i++) h += `<div class="cal-day blank"></div>`;
+  for (let d = 1; d <= dim; d++) {
+    const ds = ymd(calY, calM, d);
+    if (ds < MIN_DATE || ds > MAX_DATE) { h += `<div class="cal-day disabled">${d}</div>`; continue; }
+    let cls = 'cal-day';
+    if (selStart && selEnd && ds >= selStart && ds <= selEnd) cls += ' in-range';
+    if (ds === selStart || ds === selEnd) cls += ' sel';
+    h += `<button type="button" class="${cls}" onclick="calPick('${ds}')">${d}</button>`;
+  }
+  document.getElementById('cal-grid').innerHTML = h;
+}
+function calPick(ds) {
+  if (!selStart || selEnd) {            // start a fresh range
+    selStart = ds; selEnd = null;
+    document.getElementById('cal-hint').textContent = 'Tap end date';
+    renderCal();
+  } else if (ds < selStart) {           // earlier than start → move the start
+    selStart = ds;
+    renderCal();
+  } else {                              // completes the range → apply and close
+    selEnd = ds;
+    applyRange(selStart, selEnd);
+    document.getElementById('cal-pop').hidden = true;
+  }
+}
+function calFull() {
+  document.getElementById('cal-pop').hidden = true;
+  showFullStudy();
+}
+function applyRange(s, e) {
   if (!s || !e || s > e) return;
   const si = DATA.labels.findIndex(l => l.startsWith(s));
   let ei = -1;
@@ -704,14 +807,16 @@ function applyDateRange() {
   weekMode = true;
   setActiveKd(null);
   updateWeekNav();
+  syncDateInputs();
   hoverIdx = -1;
   draw();
 }
-
-function syncDateInputs() {
-  document.getElementById('date-start').value = DATA.labels[viewStart].slice(0, 10);
-  document.getElementById('date-end').value   = DATA.labels[viewEnd].slice(0, 10);
-}
+// Close the calendar when tapping anywhere outside it
+document.addEventListener('click', e => {
+  const pop = document.getElementById('cal-pop');
+  if (pop.hidden) return;
+  if (!pop.contains(e.target) && e.target.id !== 'range-trigger') pop.hidden = true;
+});
 
 // ── Chart geometry ─────────────────────────────────────────────────────────
 const MARGIN = { top:24, right:44, bottom:52, left:46 };
@@ -1250,13 +1355,6 @@ viewEnd   = N - 1;
 weekMode  = true;
 setActiveKd(null);
 updateWeekNav();
-// Set date input bounds + initial values
-const minDate = DATA.labels[0].slice(0, 10);
-const maxDate = DATA.labels[N - 1].slice(0, 10);
-['date-start','date-end'].forEach(id => {
-  const el = document.getElementById(id);
-  el.min = minDate; el.max = maxDate;
-});
 syncDateInputs();
 buildBuildStats();
 drawFloorPlan();
