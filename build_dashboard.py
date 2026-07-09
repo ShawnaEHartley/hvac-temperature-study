@@ -154,6 +154,43 @@ a{color:#7A6A56;text-decoration:underline;text-underline-offset:3px}
 .build-block li{margin-bottom:4px}
 
 .footer{margin-top:60px;padding-top:20px;border-top:1px solid #D8D0C4;font-size:.78rem;color:#9A8A76;text-align:center}
+
+/* ── Mobile / touch ── */
+html{-webkit-text-size-adjust:100%}
+body{overflow-x:hidden}
+#mainChart{touch-action:pan-y}          /* browser owns vertical scroll; we handle horizontal scrub */
+.mobile-only{display:none}
+.kd-select{font-family:inherit;font-size:.8rem;color:#5A4E40;border:1px solid #D8D0C4;border-radius:3px;padding:8px 10px;background:#FEFCF9;cursor:pointer;max-width:100%}
+@media (max-width:640px){
+  .page{padding:0 16px 60px}
+  .tab-bar{margin-bottom:28px}
+  .tab-btn{padding:13px 18px 13px 0;font-size:.8rem}
+  .story-header{padding:32px 0 28px;margin-bottom:32px}
+  .hero{padding:26px 20px;margin-bottom:36px}
+  .hero-num{font-size:2rem}
+  .story-section{margin-bottom:34px}
+  .story-section p{font-size:.95rem;line-height:1.75}
+
+  /* Data-tab controls: swap key-date buttons for the dropdown, enlarge targets */
+  .desktop-only{display:none !important}
+  select.mobile-only{display:block}
+  .chart-header{gap:12px}
+  .chart-title{flex:1 1 100%}
+  #metric-toggle{flex:1 1 100%;gap:6px}
+  #metric-toggle .zbtn{flex:1 1 0;text-align:center}
+  #preset-row{gap:10px}
+  .kd-select{flex:1 1 100%;font-size:16px;padding:11px 12px}
+  .zbtn,.sensor-toggle{padding:10px 14px;font-size:.82rem}
+  #sensor-toggles{gap:8px}
+  .date-input{font-size:16px;padding:9px 10px}
+  .chart-note{font-size:.78rem}
+
+  /* Floor plan + cards stack full width */
+  .floorplan-svg-wrap{max-width:100%;width:100%}
+  .floorplan-legend{min-width:0;width:100%}
+  .hyp-section{padding:20px 18px}
+  .build-block{padding:18px 18px}
+}
 </style>
 </head>
 <body>
@@ -239,10 +276,11 @@ a{color:#7A6A56;text-decoration:underline;text-underline-offset:3px}
     </div>
 
     <div class="controls" id="preset-row" style="gap:6px">
-      <button class="zbtn" id="z-all" onclick="showFullStudy()">Full study</button>
-      <div class="ctrl-sep"></div>
-      <div class="ctrl-group" id="kd-btns"></div>
-      <div class="ctrl-sep" id="sep-sensors"></div>
+      <button class="zbtn desktop-only" id="z-all" onclick="showFullStudy()">Full study</button>
+      <div class="ctrl-sep desktop-only"></div>
+      <div class="ctrl-group desktop-only" id="kd-btns"></div>
+      <select class="kd-select mobile-only" id="kd-select" onchange="onJumpSelect(this.value)" aria-label="Jump to date"></select>
+      <div class="ctrl-sep desktop-only" id="sep-sensors"></div>
       <span style="font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:#9A8A76;margin-right:2px">Sensors</span>
       <div class="ctrl-group" id="sensor-toggles"></div>
     </div>
@@ -251,6 +289,13 @@ a{color:#7A6A56;text-decoration:underline;text-underline-offset:3px}
       <input type="date" id="date-start" class="date-input" onchange="applyDateRange()">
       <span style="font-size:.78rem;color:#9A8A76">–</span>
       <input type="date" id="date-end" class="date-input" onchange="applyDateRange()">
+    </div>
+    <div class="controls" id="axis-row" style="gap:8px;margin-top:-6px">
+      <span style="font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:#9A8A76">Y-axis</span>
+      <div class="ctrl-group" id="axis-toggle">
+        <button class="zbtn active" data-axis="fixed" onclick="setAxis('fixed',this)">Fixed</button>
+        <button class="zbtn" data-axis="auto" onclick="setAxis('auto',this)">Auto-fit</button>
+      </div>
     </div>
     <div id="info-tip"></div>
 
@@ -408,7 +453,8 @@ const METRICS = {
     title:   'Temperature over time',
     unit:    '°F', axisSuffix: '°',
     sensors: DATA.sensors,    outdoor: DATA.outdoor,
-    step: 5,  decimals: 1, defLo: 40, defHi: 100, clampLo: null, clampHi: null,
+    step: 5,  decimals: 1, defLo: 60, defHi: 95, clampLo: null, clampHi: null,
+    fixed: true,   // hold the temp axis steady at 60–95°F across date shifts
     refs: [
       { v: COMFORT,      color: '#C4B49A', label: '72°F comfort' },
       { v: HABITABILITY, color: '#C4884A', label: '78°F habitability' },
@@ -429,6 +475,7 @@ const METRICS = {
 };
 let metric = 'temp';
 function M() { return METRICS[metric]; }
+let autoFitY = false;   // false = fixed axis (default); true = rescale Y to the visible data
 
 // ── State ──────────────────────────────────────────────────────────────────
 let viewStart = 0;
@@ -444,8 +491,28 @@ function setMetric(m, btn) {
   btn.classList.add('active');
   document.getElementById('chart-title').textContent = M().title;
   document.getElementById('chart-note').textContent  = M().note;
+  // The fixed/auto axis control only applies to temperature (humidity always auto-fits)
+  document.getElementById('axis-row').style.display = (m === 'temp') ? '' : 'none';
   hoverIdx = -1;
   draw();
+}
+
+function setAxis(mode, btn) {
+  autoFitY = (mode === 'auto');
+  document.querySelectorAll('#axis-toggle .zbtn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  hoverIdx = -1;
+  draw();
+}
+
+// On phones the Y-axis selector sits below the chart; on desktop it stays in the controls
+function placeAxisRow() {
+  const row = document.getElementById('axis-row');
+  if (window.matchMedia('(max-width: 640px)').matches) {
+    document.querySelector('.chart-outer').after(row);
+  } else {
+    document.getElementById('info-tip').before(row);
+  }
 }
 
 // ── Tabs ───────────────────────────────────────────────────────────────────
@@ -465,6 +532,11 @@ function labelToIdx(prefix) {
 
 const WEEK = 96 * 7; // points in 7 days
 let weekMode = false;
+
+// Default zoom window: narrower on phones so the chart stays readable
+function defaultSpan() {
+  return window.matchMedia('(max-width: 640px)').matches ? 96 * 3 : WEEK;
+}
 
 const KEY_DATES = [
   {
@@ -503,6 +575,12 @@ function buildControls() {
     kd.appendChild(wrap);
   });
 
+  // Mobile "jump to" dropdown — mirrors the desktop key-date buttons
+  const sel = document.getElementById('kd-select');
+  sel.innerHTML = '<option value="">Jump to date…</option>'
+    + '<option value="all">Full study</option>'
+    + KEY_DATES.map(d => `<option value="${d.id}">${d.label}</option>`).join('');
+
   // Sensor toggles
   const st = document.getElementById('sensor-toggles');
   [...SENSORS, OUTDOOR].forEach(s => {
@@ -539,9 +617,11 @@ function jumpToDate(id) {
   const d = KEY_DATES.find(x => x.id === id);
   if (!d) return;
   const dayIdx = labelToIdx(d.date); // index of 00:00 on that date
-  // Put that date at position 2 of 7 (0-indexed = day 2 = 3rd day)
-  const start = Math.max(0, dayIdx - 2 * 96);
-  const end   = Math.min(N - 1, start + WEEK - 1);
+  // Show the target date near the start of the window (1 day of lead on mobile, 2 on desktop)
+  const span = defaultSpan();
+  const lead = (span >= WEEK ? 2 : 1) * 96;
+  const start = Math.max(0, dayIdx - lead);
+  const end   = Math.min(N - 1, start + span - 1);
   viewStart = start;
   viewEnd   = end;
   weekMode  = true;
@@ -604,12 +684,20 @@ function fmtDate(lbl) {
   return months[m] + ' ' + d;
 }
 
+function onJumpSelect(v) {
+  if (v === '') return;
+  if (v === 'all') showFullStudy(); else jumpToDate(v);
+}
+
 function setActiveKd(id) {
   document.getElementById('z-all').classList.toggle('active', id === null && !weekMode);
   KEY_DATES.forEach(d => {
     const el = document.getElementById('kd-' + d.id);
     if (el) el.classList.toggle('active', d.id === id);
   });
+  // Keep the mobile dropdown in sync: a key date, Full study, or neutral (manually scrolled)
+  const sel = document.getElementById('kd-select');
+  if (sel) sel.value = (id !== null) ? id : (weekMode ? '' : 'all');
 }
 
 function toggleSensor(key) {
@@ -681,6 +769,7 @@ function xToI(x, geo) {
 // ── Y-axis range ───────────────────────────────────────────────────────────
 function computeYRange() {
   const m = M();
+  if (m.fixed && !autoFitY) return { lo: m.defLo, hi: m.defHi };   // steady axis unless auto-fit is on
   let lo = m.defLo, hi = m.defHi;
   const slice = (arr) => arr ? arr.slice(viewStart, viewEnd+1).filter(v => v != null) : [];
   const all = [
@@ -1029,19 +1118,42 @@ canvas.addEventListener('mousemove', e => {
 
 canvas.addEventListener('mouseleave', () => { hoverIdx = -1; draw(); });
 
-// Touch support
-canvas.addEventListener('touchmove', e => {
-  e.preventDefault();
-  const t = e.touches[0];
+// Touch: tap to read a value, horizontal drag to scrub, vertical drag scrolls the page.
+function hoverFromClientX(clientX) {
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
-  const mx = t.clientX - rect.left;
+  const mx = clientX - rect.left;
   const geo = getGeo({ width: canvas.width/dpr, height: canvas.height/dpr });
-  if (mx >= geo.x0 && mx <= geo.x1) {
-    hoverIdx = Math.max(viewStart, Math.min(viewEnd, xToI(mx, geo)));
-    draw();
+  if (mx < geo.x0 || mx > geo.x1) return;
+  const i = Math.max(viewStart, Math.min(viewEnd, xToI(mx, geo)));
+  if (i !== hoverIdx) { hoverIdx = i; draw(); }
+}
+let tStartX = 0, tStartY = 0, tScrub = false;
+canvas.addEventListener('touchstart', e => {
+  const t = e.touches[0];
+  tStartX = t.clientX; tStartY = t.clientY; tScrub = false;
+}, { passive: true });
+canvas.addEventListener('touchmove', e => {
+  const t = e.touches[0];
+  const dx = Math.abs(t.clientX - tStartX), dy = Math.abs(t.clientY - tStartY);
+  if (!tScrub) {
+    if (dx > dy && dx > 6) tScrub = true;        // horizontal intent → scrub the chart
+    else if (dy > dx && dy > 6) {                // vertical intent → let the page scroll
+      if (hoverIdx !== -1) { hoverIdx = -1; draw(); }
+      return;
+    } else return;
   }
+  e.preventDefault();                            // we own the horizontal gesture now
+  hoverFromClientX(t.clientX);
 }, { passive: false });
+canvas.addEventListener('touchend', e => {
+  if (!tScrub) {                                 // a tap, not a drag → inspect that point
+    const t = e.changedTouches[0];
+    if (Math.abs(t.clientX - tStartX) < 8 && Math.abs(t.clientY - tStartY) < 8)
+      hoverFromClientX(t.clientX);
+  }
+  tScrub = false;
+}, { passive: true });
 
 // ── Floor Plan ─────────────────────────────────────────────────────────────
 function drawFloorPlan() {
@@ -1163,8 +1275,8 @@ function buildBuildStats() {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 buildControls();
-// Default: last 7 days, most recent data flush right
-viewStart = Math.max(0, N - WEEK);
+// Default: last few days (3 on mobile, 7 on desktop), most recent data flush right
+viewStart = Math.max(0, N - defaultSpan());
 viewEnd   = N - 1;
 weekMode  = true;
 setActiveKd(null);
@@ -1179,9 +1291,11 @@ const maxDate = DATA.labels[N - 1].slice(0, 10);
 syncDateInputs();
 buildBuildStats();
 drawFloorPlan();
+placeAxisRow();
 resizeAndDraw();
 
 window.addEventListener('resize', () => {
+  placeAxisRow();
   if (document.getElementById('panel-data').classList.contains('active')) resizeAndDraw();
 });
 </script>
