@@ -143,11 +143,11 @@ a{color:#7A6A56;text-decoration:underline;text-underline-offset:3px}
       <div class="hero-stats">
         <div class="hero-stat">
           <div class="hero-num">30°F</div>
-          <div class="hero-desc">April 13 overnight gap — outdoor dropped to 47°F, indoor held at 77°F. The building couldn't shed heat even with a massive differential to outside.</div>
+          <div class="hero-desc">May 30 evening — outdoor cooled to 54°F while the living room held at 84°F. The building couldn't shed heat even with a 30° differential to the outside.</div>
         </div>
         <div class="hero-stat">
-          <div class="hero-num">81°F</div>
-          <div class="hero-desc">Living room peak on an 80°F outdoor day. Indoor exceeded outdoor. The PTACs were running.</div>
+          <div class="hero-num">85°F</div>
+          <div class="hero-desc">On a hot day with the PTACs set to 75, the living room still peaks in the mid-80s — right around the outdoor high. The AC can't pull it into a comfortable range; it just tracks the temperature outside.</div>
         </div>
         <div class="hero-stat">
           <div class="hero-num">≈ same</div>
@@ -163,12 +163,12 @@ a{color:#7A6A56;text-decoration:underline;text-underline-offset:3px}
     <div class="story-section">
       <h2>The Problem</h2>
       <p>Top-floor unit in a NYC luxury high-rise with PTAC units. Floor-to-ceiling windows on two walls, flat roof above. The building installed new PTACs in May 2026. Temperatures didn't improve. The building's own HVAC technician confirmed the cause is structural — the roof and windows absorb and radiate heat far faster than the equipment can remove it.</p>
-      <p>The problem isn't broken equipment. The equipment works. The problem is the building's thermal envelope — and no amount of PTAC maintenance changes that.</p>
+      <p>The problem isn't broken equipment. The equipment works. The problem is the building's thermal envelope — and no amount of PTAC maintenance changes that. Humidity isn't the culprit either: indoor moisture held near a comfortable 46%, so the failure is purely thermal — it's the heat, not the air quality.</p>
     </div>
 
     <div class="story-section">
       <h2>The Action</h2>
-      <p>Deployed Govee temperature sensors throughout the living room. Pulled 15-minute readings from <span id="s-start-date"></span> through <span id="s-end-date"></span> — <span id="s-duration"></span> days of continuous monitoring. Layered in Open-Meteo outdoor weather data at the same 15-minute cadence, aligned to the same timezone, so every indoor/outdoor comparison is apples-to-apples.</p>
+      <p>Deployed Govee temperature and humidity sensors throughout the living room. Pulled 15-minute readings from <span id="s-start-date"></span> through <span id="s-end-date"></span> — <span id="s-duration"></span> days of continuous monitoring. Layered in Open-Meteo outdoor temperature and humidity at the same 15-minute cadence, aligned to the same timezone, so every indoor/outdoor comparison is apples-to-apples.</p>
       <p>As the study evolved, sensor placement changed. Before May 16, two sensors covered the living room and kitchen. On May 16 all four sensors were concentrated in the living room to map the cooling gradient from the PTAC side to the far end. Those changes are marked on the timeline.</p>
     </div>
 
@@ -181,6 +181,12 @@ a{color:#7A6A56;text-decoration:underline;text-underline-offset:3px}
       <h2>The Tradeoff</h2>
       <p>The floor unit added June 3 finally cooled the space. But it draws significant electricity and is loud enough that it runs part-time, not continuously. Managing the heat load means keeping shades down, running the unit strategically, and accepting elevated temperatures during parts of the day.</p>
       <p>Livability in this apartment means trading off temperature, power cost, noise, and effort. That's not a complaint — it's the finding. The fact that it takes all of that to stay comfortable is precisely what the data shows about the building's envelope performance.</p>
+    </div>
+
+    <div class="story-section">
+      <h2>The Real Problem</h2>
+      <p>The hardest part isn't the peak temperature — it's that I'm not home when it happens. I leave in the morning and can't lower the shades when the afternoon sun comes in, can't adjust the units, can't react. On July 8 the outdoor high never even reached 90°F, yet with the shades up and no one home, the living room climbed to 89°F and stayed above 85°F for more than two hours. My dog is home during those hours. That's not a comfort issue — it's a safety one.</p>
+      <p>This is where the problem becomes one of automation. A structural fix — better glazing, roof insulation — is the root solution. Short of that, what's missing is control I can't exercise remotely: shades that close automatically on solar gain, a thermostat that pre-cools before the peak, temperature alerts when a room crosses a safe threshold. The data doesn't just show the building runs hot. It shows the failure happens exactly when no one can step in.</p>
     </div>
   </div>
 
@@ -279,7 +285,7 @@ a{color:#7A6A56;text-decoration:underline;text-underline-offset:3px}
         </div>
         <div class="build-block">
           <h3>Outdoor weather</h3>
-          <p>Open-Meteo Historical Forecast API. 15-minute cadence (<code>minutely_15=temperature_2m</code>), Fahrenheit, aligned to America/New_York timezone — matching the indoor sensor cadence directly. Coordinates supplied as a build-time input only; not stored in any output.</p>
+          <p>Open-Meteo Historical Forecast API. 15-minute cadence (<code>minutely_15=temperature_2m,relative_humidity_2m</code>), Fahrenheit, aligned to America/New_York timezone — matching the indoor sensor cadence directly. Coordinates supplied as a build-time input only; not stored in any output.</p>
         </div>
       </div>
 
