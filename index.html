@@ -775,11 +775,12 @@ function renderCal() {
     let cls = 'cal-day';
     if (selStart && selEnd && ds >= selStart && ds <= selEnd) cls += ' in-range';
     if (ds === selStart || ds === selEnd) cls += ' sel';
-    h += `<button type="button" class="${cls}" onclick="calPick('${ds}')">${d}</button>`;
+    h += `<button type="button" class="${cls}" onclick="calPick(event,'${ds}')">${d}</button>`;
   }
   document.getElementById('cal-grid').innerHTML = h;
 }
-function calPick(ds) {
+function calPick(e, ds) {
+  if (e) e.stopPropagation();           // don't let the outside-click handler see this tap
   if (!selStart || selEnd) {            // start a fresh range
     selStart = ds; selEnd = null;
     document.getElementById('cal-hint').textContent = 'Tap end date';
