@@ -470,6 +470,14 @@ function setAxis(mode, btn) {
   draw();
 }
 
+// Default Y-axis mode by device: desktop → auto-fit, mobile → fixed (steady for comparison)
+function initAxisMode() {
+  const mobile = window.matchMedia('(max-width: 640px)').matches;
+  autoFitY = !mobile;
+  document.querySelectorAll('#axis-toggle .zbtn').forEach(b =>
+    b.classList.toggle('active', b.dataset.axis === (autoFitY ? 'auto' : 'fixed')));
+}
+
 // On phones the Y-axis selector sits below the chart; on desktop it stays in the controls
 function placeAxisRow() {
   const row = document.getElementById('axis-row');
@@ -1256,6 +1264,7 @@ const maxDate = DATA.labels[N - 1].slice(0, 10);
 syncDateInputs();
 buildBuildStats();
 drawFloorPlan();
+initAxisMode();
 placeAxisRow();
 resizeAndDraw();
 
