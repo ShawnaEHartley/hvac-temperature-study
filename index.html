@@ -1052,14 +1052,16 @@ function drawFloorPlan() {
 
   // PTAC unit (top-right corner)
   const ptacX = W - pad - 18, ptacY = pad + 4;
+  s += `<g class="fp-marker" style="cursor:pointer" data-tip="PTAC">`;
   s += `<rect x="${ptacX}" y="${ptacY}" width="16" height="20" rx="2" fill="#A0B0C0" stroke="#6B7C93" stroke-width="1"/>`;
-  s += `<text x="${ptacX+8}" y="${ptacY+13}" font-family="Georgia,serif" font-size="7.5" fill="#fff" text-anchor="middle" font-weight="bold">PTAC</text>`;
+  s += `<text x="${ptacX+8}" y="${ptacY+13}" font-family="Georgia,serif" font-size="7.5" fill="#fff" text-anchor="middle" font-weight="bold">PTAC</text></g>`;
 
   // Floor unit (bottom-left corner, added Jun 3)
   const fuX = pad + 4, fuY = H - pad - 24;
+  s += `<g class="fp-marker" style="cursor:pointer" data-tip="Floor AC (added Jun 3)">`;
   s += `<rect x="${fuX}" y="${fuY}" width="18" height="20" rx="2" fill="#C4896A" stroke="#C4553A" stroke-width="1" stroke-dasharray="3,2"/>`;
   s += `<text x="${fuX+9}" y="${fuY+13}" font-family="Georgia,serif" font-size="7" fill="#fff" text-anchor="middle" font-weight="bold">Floor</text>`;
-  s += `<text x="${fuX+9}" y="${fuY+20}" font-family="Georgia,serif" font-size="7" fill="#fff" text-anchor="middle" font-weight="bold">AC</text>`;
+  s += `<text x="${fuX+9}" y="${fuY+20}" font-family="Georgia,serif" font-size="7" fill="#fff" text-anchor="middle" font-weight="bold">AC</text></g>`;
 
   // Transect line (light dashed, Jude → Eddie → Heath)
   s += `<line x1="${jux}" y1="${juy}" x2="${edx}" y2="${edy}" stroke="#D8D0C4" stroke-width="1" stroke-dasharray="3,3"/>`;
@@ -1067,18 +1069,26 @@ function drawFloorPlan() {
 
   // Sensor dots
   const sensors = [
-    { x:chx, y:chy, color:'#6B7C93', name:'Chris',  cell:'A5'  },
-    { x:jux, y:juy, color:'#C4553A', name:'Jude',   cell:'A9'  },
-    { x:edx, y:edy, color:'#D4892A', name:'Eddie',  cell:'B6'  },
-    { x:hex, y:hey, color:'#5A8A6A', name:'Heath',  cell:'C2'  },
+    { x:chx, y:chy, color:'#6B7C93', name:'Chris',  cell:'A5', tip:'Chris Hemsworth' },
+    { x:jux, y:juy, color:'#C4553A', name:'Jude',   cell:'A9', tip:'Jude Law' },
+    { x:edx, y:edy, color:'#D4892A', name:'Eddie',  cell:'B6', tip:'Eddie Redmayne' },
+    { x:hex, y:hey, color:'#5A8A6A', name:'Heath',  cell:'C2', tip:'Heath Ledger' },
   ];
 
   sensors.forEach(sen => {
+    s += `<g class="fp-marker" style="cursor:pointer" data-tip="${sen.tip}">`;
     s += `<circle cx="${sen.x}" cy="${sen.y}" r="8" fill="${sen.color}" opacity="0.9"/>`;
-    s += `<text x="${sen.x}" y="${sen.y + 4}" font-family="Georgia,serif" font-size="8" fill="#fff" text-anchor="middle" font-weight="bold">${sen.name}</text>`;
+    s += `<text x="${sen.x}" y="${sen.y + 4}" font-family="Georgia,serif" font-size="8" fill="#fff" text-anchor="middle" font-weight="bold">${sen.name}</text></g>`;
   });
 
   svg.innerHTML = s;
+
+  // Hover tooltips on floor-plan markers (reuses the styled #info-tip)
+  svg.querySelectorAll('.fp-marker').forEach(el => {
+    const text = el.getAttribute('data-tip');
+    el.addEventListener('mouseenter', e => showTip(e, text));
+    el.addEventListener('mouseleave', hideTip);
+  });
 
   // Legend
   const leg = document.getElementById('fp-legend');
