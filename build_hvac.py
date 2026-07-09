@@ -37,13 +37,22 @@ DATA_DIR   = Path(__file__).parent / "sensor_data"
 OUTPUT_DIR = Path(__file__).parent
 
 START_DATE = "2026-04-01"
-END_DATE   = "2026-06-17"   # inclusive — sensor data through noon today
+END_DATE   = "2026-07-08"   # inclusive — stop at yesterday (Open-Meteo gives forecast, not actuals, for today)
 
 RELOC_DATE      = "2026-05-16"   # sensor relocation: Heath/Eddie move into living room
 PTAC_DATE       = "2026-05-18"   # new PTACs installed
 FLOOR_UNIT_DATE = "2026-06-03"   # supplemental floor AC unit added
 
 TZ = ZoneInfo("America/New_York")
+
+# Correction for the Govee sensor clock lag. The device timestamps run 2 hours
+# late relative to the wall clock (confirmed by the user against known events —
+# AC on at midnight Jun 24, thermostat change ~10 AM Jul 1 — and live app
+# readings). We shift every sensor reading EARLIER by this amount so a reading
+# the sensor labeled 12:00 lands at its true 10:00. Outdoor weather (Open-Meteo)
+# and the wall-clock event markers are already correct and are NOT shifted.
+# Note: after this correction indoor peaks ~1.5 h after outdoor.
+SENSOR_CLOCK_OFFSET = pd.Timedelta(hours=2)
 
 # Sensors included in the dashboard (bedroom sensors excluded)
 LIVING_ROOM_SENSORS = ["CHRIS HEMSWORTH", "JUDE LAW", "HEATH LEDGER", "EDDIE REDMAYNE"]
@@ -79,20 +88,21 @@ def load_existing_weather() -> pd.Series:
     return combined.sort_index()
 
 
-def fetch_openmeteo(start: str, end: str) -> pd.Series:
+def fetch_openmeteo(start: str, end: str, var: str = "temperature_2m") -> pd.Series:
     """
-    Fetch 15-min outdoor temperature from Open-Meteo Historical Forecast API.
+    Fetch a 15-min outdoor variable from Open-Meteo Historical Forecast API.
+    `var` is a minutely_15 field (e.g. "temperature_2m", "relative_humidity_2m").
     Returns a Series indexed by timezone-aware NYC timestamps.
     """
     url = (
         f"https://historical-forecast-api.open-meteo.com/v1/forecast"
         f"?latitude={_LAT}&longitude={_LON}"
         f"&start_date={start}&end_date={end}"
-        f"&minutely_15=temperature_2m"
+        f"&minutely_15={var}"
         f"&temperature_unit=fahrenheit"
         f"&timezone=America%2FNew_York"
     )
-    print(f"  Fetching Open-Meteo {start} → {end} …")
+    print(f"  Fetching Open-Meteo {var} {start} → {end} …")
     try:
         with urllib.request.urlopen(url, timeout=30) as r:
             data = json.loads(r.read())
@@ -105,8 +115,8 @@ def fetch_openmeteo(start: str, end: str) -> pd.Series:
         return pd.Series(dtype=float)
 
     times = pd.to_datetime(data["minutely_15"]["time"])
-    temps = data["minutely_15"]["temperature_2m"]
-    s = pd.Series(temps, index=times, dtype=float)
+    vals = data["minutely_15"][var]
+    s = pd.Series(vals, index=times, dtype=float)
     s.index = s.index.tz_localize(TZ)
     return s
 
@@ -147,17 +157,35 @@ def build_weather(grid: pd.DatetimeIndex) -> pd.Series:
     return aligned
 
 
+def build_outdoor_humidity(grid: pd.DatetimeIndex) -> pd.Series:
+    """
+    Return a 15-min outdoor relative-humidity (%) series aligned to `grid`.
+    Fetched fresh from Open-Meteo each build (no CSV cache exists for humidity).
+    """
+    grid_start = grid[0].date().isoformat()
+    grid_end   = grid[-1].date().isoformat()
+    rh = fetch_openmeteo(grid_start, grid_end, var="relative_humidity_2m")
+
+    if rh.empty:
+        return pd.Series([None] * len(grid), index=grid, dtype=object)
+
+    rh = rh[~rh.index.duplicated(keep="first")].sort_index()
+    rh_15 = rh.resample("15min").interpolate(method="time").round(1)
+    return rh_15.reindex(grid)
+
+
 # ── Sensor data ────────────────────────────────────────────────────────────────
 
-def load_sensor(name: str) -> pd.Series:
+def load_sensor(name: str) -> pd.DataFrame:
     """
     Load and concatenate all CSVs for a given sensor name.
-    Returns a Series of TempF indexed by timezone-aware NYC timestamps.
+    Returns a DataFrame with TempF and RH columns indexed by
+    timezone-aware NYC timestamps.
     """
     files = sorted(DATA_DIR.glob(f"{name}_export_*.csv"))
     if not files:
         print(f"  Warning: no files found for sensor '{name}'")
-        return pd.Series(dtype=float)
+        return pd.DataFrame(columns=["TempF", "RH"])
 
     frames = []
     for f in files:
@@ -168,18 +196,23 @@ def load_sensor(name: str) -> pd.Series:
             # Assume timestamps are in NYC local time (no tz info in Govee CSVs)
             df["Timestamp"] = df["Timestamp"].dt.tz_localize(TZ, ambiguous="NaT", nonexistent="NaT")
             df = df.dropna(subset=["Timestamp"])
-            df = df.set_index("Timestamp")["TempF"]
-            df = pd.to_numeric(df, errors="coerce").dropna()
+            df = df.set_index("Timestamp")[["TempF", "RH"]]
+            df["TempF"] = pd.to_numeric(df["TempF"], errors="coerce")
+            df["RH"]    = pd.to_numeric(df["RH"], errors="coerce")
+            df = df.dropna(how="all")
             frames.append(df)
         except Exception as e:
             print(f"  Warning: could not read {f.name}: {e}")
 
     if not frames:
-        return pd.Series(dtype=float)
+        return pd.DataFrame(columns=["TempF", "RH"])
 
     combined = pd.concat(frames)
     combined = combined[~combined.index.duplicated(keep="first")]
-    return combined.sort_index()
+    combined = combined.sort_index()
+    # Correct the 2-hour sensor clock lag (shift readings to their true, earlier time)
+    combined.index = combined.index - SENSOR_CLOCK_OFFSET
+    return combined
 
 
 # ── Build payload ──────────────────────────────────────────────────────────────
@@ -194,6 +227,8 @@ def build_payload() -> dict:
     # Outdoor weather
     print("Processing outdoor weather…")
     outdoor = build_weather(grid)
+    print("Processing outdoor humidity…")
+    outdoor_rh = build_outdoor_humidity(grid)
 
     # Sensors
     sensor_keys = {
@@ -203,7 +238,10 @@ def build_payload() -> dict:
         "HEATH LEDGER":    "heath",
     }
 
-    sensor_series = {}
+    empty_grid = lambda: pd.Series([None] * len(grid), index=grid, dtype=object)
+
+    sensor_series = {}     # temperature (°F)
+    sensor_rh_series = {}  # relative humidity (%)
     for name, key in sensor_keys.items():
         print(f"Processing {name}…")
         raw = load_sensor(name)
@@ -216,10 +254,20 @@ def build_payload() -> dict:
         # Clip to our date range
         raw = raw[(raw.index >= start) & (raw.index <= end)]
 
-        # Resample to 15-min grid, interpolate small gaps (up to 4 steps = 1 hr)
-        raw_15 = raw.resample("15min").interpolate(method="time", limit=4).round(1)
-        aligned = raw_15.reindex(grid)
-        sensor_series[key] = aligned
+        if raw.empty:
+            sensor_series[key]    = empty_grid()
+            sensor_rh_series[key] = empty_grid()
+            continue
+
+        # Resample each column to 15-min grid, interpolate small gaps (≤4 steps = 1 hr)
+        def to_grid(col: pd.Series) -> pd.Series:
+            col = col.dropna()
+            if col.empty:
+                return empty_grid()
+            return col.resample("15min").interpolate(method="time", limit=4).round(1).reindex(grid)
+
+        sensor_series[key]    = to_grid(raw["TempF"])
+        sensor_rh_series[key] = to_grid(raw["RH"])
 
     # Build label list (ISO strings, no tz offset — all NYC local)
     labels = [t.strftime("%Y-%m-%dT%H:%M") for t in grid]
@@ -245,11 +293,18 @@ def build_payload() -> dict:
     payload = {
         "labels":         labels,
         "outdoor":        series_to_list(outdoor),
+        "outdoor_rh":     series_to_list(outdoor_rh),
         "sensors": {
             "chris": series_to_list(sensor_series["chris"]),
             "jude":  series_to_list(sensor_series["jude"]),
             "eddie": series_to_list(sensor_series["eddie"]),
             "heath": series_to_list(sensor_series["heath"]),
+        },
+        "sensors_rh": {
+            "chris": series_to_list(sensor_rh_series["chris"]),
+            "jude":  series_to_list(sensor_rh_series["jude"]),
+            "eddie": series_to_list(sensor_rh_series["eddie"]),
+            "heath": series_to_list(sensor_rh_series["heath"]),
         },
         "annotations": {
             "reloc_idx":      reloc_idx,

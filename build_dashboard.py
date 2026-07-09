@@ -225,7 +225,11 @@ a{color:#7A6A56;text-decoration:underline;text-underline-offset:3px}
   <div class="tab-panel" id="panel-data">
 
     <div class="chart-header" style="margin-top:8px">
-      <div class="chart-title">Temperature over time</div>
+      <div class="chart-title" id="chart-title">Temperature over time</div>
+      <div class="ctrl-group" id="metric-toggle">
+        <button class="zbtn active" data-metric="temp" onclick="setMetric('temp',this)">Temperature</button>
+        <button class="zbtn" data-metric="rh" onclick="setMetric('rh',this)">Humidity</button>
+      </div>
     </div>
 
     <div class="controls" id="preset-row" style="gap:6px">
@@ -251,7 +255,7 @@ a{color:#7A6A56;text-decoration:underline;text-underline-offset:3px}
       </div>
       <button class="chart-nav" id="btn-next" onclick="shiftDay(1)">&#8250;</button>
     </div>
-    <div class="chart-note">
+    <div class="chart-note" id="chart-note">
       Vertical lines mark study events: sensor relocation (May 16), new PTACs installed (May 18), floor unit added (Jun 3). Outdoor weather from Open-Meteo (dashed). 72°F comfort and 78°F habitability reference lines shown.
     </div>
 
@@ -373,15 +377,70 @@ const EVENTS = [
   { idx: ANN.floor_unit_idx, short:'Jun 3',  label:'Jun 3 — floor\nunit added',                  color:'#C4553A' },
 ];
 
+// ── Demand Response events ───────────────────────────────────────────────────
+// Windows when PTACs were intentionally minimized (thermostat set to 85°F) to
+// shed load. Shaded like night bands to explain the temperature spikes.
+const DR_EVENTS = [
+  { start:'2026-07-01T10:00', end:'2026-07-01T22:00' },
+  { start:'2026-07-02T15:00', end:'2026-07-02T21:00' },
+  { start:'2026-07-03T10:00', end:'2026-07-03T22:00' },
+];
+const DR_BANDS = DR_EVENTS
+  .map(d => ({ s: DATA.labels.indexOf(d.start), e: DATA.labels.indexOf(d.end) }))
+  .filter(b => b.s >= 0 && b.e >= 0);
+
 const N = DATA.labels.length;
 const COMFORT      = 72;
 const HABITABILITY = 78;
+
+// ── Metrics (temperature ↔ humidity) ────────────────────────────────────────
+// Each metric supplies its own data arrays, axis unit, gridline step, default
+// range and reference lines. The whole chart engine is metric-agnostic and
+// reads everything through M().
+const METRICS = {
+  temp: {
+    title:   'Temperature over time',
+    unit:    '°F', axisSuffix: '°',
+    sensors: DATA.sensors,    outdoor: DATA.outdoor,
+    step: 5,  decimals: 1, defLo: 40, defHi: 100, clampLo: null, clampHi: null,
+    refs: [
+      { v: COMFORT,      color: '#C4B49A', label: '72°F comfort' },
+      { v: HABITABILITY, color: '#C4884A', label: '78°F habitability' },
+    ],
+    note: 'Vertical lines mark study events: sensor relocation (May 16), new PTACs installed (May 18), floor unit added (Jun 3). Outdoor weather from Open-Meteo (dashed). 72°F comfort and 78°F habitability reference lines shown. Warm amber bands (Jul 1–3) mark Demand Response events, when the thermostat was intentionally set to 85°F to reduce grid load.',
+  },
+  rh: {
+    title:   'Relative humidity over time',
+    unit:    '%', axisSuffix: '%',
+    sensors: DATA.sensors_rh, outdoor: DATA.outdoor_rh,
+    step: 10, decimals: 0, defLo: 20, defHi: 80, clampLo: 0, clampHi: 100,
+    refs: [
+      { v: 40, color: '#C4B49A', label: '40% (dry limit)' },
+      { v: 60, color: '#C4884A', label: '60% (muggy)' },
+    ],
+    note: 'Vertical lines mark study events: sensor relocation (May 16), new PTACs installed (May 18), floor unit added (Jun 3). Outdoor humidity from Open-Meteo (dashed). The 40–60% band is the comfort range — below is dry, above feels muggy and invites mold. Warm amber bands (Jul 1–3) mark Demand Response events, when the thermostat was set to 85°F to reduce grid load.',
+  },
+};
+let metric = 'temp';
+function M() { return METRICS[metric]; }
 
 // ── State ──────────────────────────────────────────────────────────────────
 let viewStart = 0;
 let viewEnd   = N - 1;
 let hoverIdx  = -1;
 const vis = { outdoor:true, chris:true, jude:true, eddie:true, heath:true };
+
+// ── Metric toggle ────────────────────────────────────────────────────────────
+function setMetric(m, btn) {
+  if (m === metric) return;
+  metric = m;
+  document.querySelectorAll('#metric-toggle .zbtn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('chart-title').textContent = M().title;
+  document.getElementById('chart-note').textContent  = M().note;
+  hoverIdx = -1;
+  draw();
+}
 
 // ── Tabs ───────────────────────────────────────────────────────────────────
 function showTab(name, btn) {
@@ -615,22 +674,26 @@ function xToI(x, geo) {
 
 // ── Y-axis range ───────────────────────────────────────────────────────────
 function computeYRange() {
-  let lo = 40, hi = 100;
+  const m = M();
+  let lo = m.defLo, hi = m.defHi;
   const slice = (arr) => arr ? arr.slice(viewStart, viewEnd+1).filter(v => v != null) : [];
   const all = [
-    vis.outdoor ? slice(DATA.outdoor) : [],
-    vis.chris   ? slice(DATA.sensors.chris) : [],
-    vis.jude    ? slice(DATA.sensors.jude)  : [],
-    vis.eddie   ? slice(DATA.sensors.eddie) : [],
-    vis.heath   ? slice(DATA.sensors.heath) : [],
+    vis.outdoor ? slice(m.outdoor) : [],
+    vis.chris   ? slice(m.sensors.chris) : [],
+    vis.jude    ? slice(m.sensors.jude)  : [],
+    vis.eddie   ? slice(m.sensors.eddie) : [],
+    vis.heath   ? slice(m.sensors.heath) : [],
   ].flat();
   if (all.length) {
     lo = Math.floor(Math.min(...all) - 2);
     hi = Math.ceil(Math.max(...all)  + 2);
   }
-  // Snap to nice 5° grid
-  lo = Math.floor(lo / 5) * 5;
-  hi = Math.ceil(hi  / 5) * 5;
+  // Snap to a nice grid for this metric
+  lo = Math.floor(lo / m.step) * m.step;
+  hi = Math.ceil(hi  / m.step) * m.step;
+  // Clamp to the metric's physical bounds (e.g. RH is 0–100%)
+  if (m.clampLo != null) lo = Math.max(m.clampLo, lo);
+  if (m.clampHi != null) hi = Math.min(m.clampHi, hi);
   return { lo, hi };
 }
 
@@ -713,11 +776,36 @@ function drawNightBands(geo) {
   ctx.restore();
 }
 
+function drawDrBands(geo) {
+  // Shade Demand Response windows with a warm amber wash + label.
+  DR_BANDS.forEach(b => {
+    const s = Math.max(b.s, viewStart), e = Math.min(b.e, viewEnd);
+    if (s > e) return;
+    const x0 = iToX(s, geo), x1 = iToX(e, geo);
+    ctx.save();
+    ctx.fillStyle = 'rgba(196, 85, 58, 0.10)';
+    ctx.fillRect(x0, geo.y0, x1 - x0, geo.h);
+    // Left edge marker
+    ctx.strokeStyle = 'rgba(196, 85, 58, 0.35)';
+    ctx.setLineDash([2, 3]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x0, geo.y0); ctx.lineTo(x0, geo.y1); ctx.stroke();
+    // Label near the bottom of the plot, if the band is wide enough
+    if (x1 - x0 > 40) {
+      ctx.fillStyle = '#B24A34';
+      ctx.font = 'bold 9px Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('DR EVENT', (x0 + x1) / 2, geo.y1 - 6);
+    }
+    ctx.restore();
+  });
+}
+
 function draw() {
   const dpr = window.devicePixelRatio || 1;
   const W = canvas.width / dpr, H = canvas.height / dpr;
   ctx.clearRect(0, 0, W, H);
 
+  const m = M();
   const geo = getGeo({ width: W, height: H });
   const { lo, hi } = computeYRange();
 
@@ -734,33 +822,29 @@ function draw() {
   // ── Night bands (10 pm – 6 am each day) ──
   drawNightBands(geo);
 
+  // ── Demand Response event bands (Jul 1–3) ──
+  drawDrBands(geo);
+
   // ── Gridlines ──
   ctx.strokeStyle = '#EDE8DF';
   ctx.lineWidth = 1;
-  for (let t = Math.ceil(lo / 5) * 5; t <= hi; t += 5) {
+  for (let t = Math.ceil(lo / m.step) * m.step; t <= hi; t += m.step) {
     const y = vToY(t, geo, lo, hi);
     ctx.beginPath(); ctx.moveTo(geo.x0, y); ctx.lineTo(geo.x1, y); ctx.stroke();
   }
 
   // ── Reference lines ──
-  if (lo <= COMFORT && COMFORT <= hi) {
-    const y = vToY(COMFORT, geo, lo, hi);
+  ctx.font = '10px Georgia, serif';
+  m.refs.forEach(ref => {
+    if (ref.v < lo || ref.v > hi) return;
+    const y = vToY(ref.v, geo, lo, hi);
     ctx.save();
-    ctx.strokeStyle = '#C4B49A'; ctx.setLineDash([3, 5]); ctx.lineWidth = 1;
+    ctx.strokeStyle = ref.color; ctx.setLineDash([3, 5]); ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(geo.x0, y); ctx.lineTo(geo.x1, y); ctx.stroke();
     ctx.restore();
-    ctx.fillStyle = '#C4B49A'; ctx.font = '10px Georgia, serif';
-    ctx.fillText('72°F comfort', geo.x1 - 78, y - 4);
-  }
-  if (lo <= HABITABILITY && HABITABILITY <= hi) {
-    const y = vToY(HABITABILITY, geo, lo, hi);
-    ctx.save();
-    ctx.strokeStyle = '#C4884A'; ctx.setLineDash([3, 5]); ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(geo.x0, y); ctx.lineTo(geo.x1, y); ctx.stroke();
-    ctx.restore();
-    ctx.fillStyle = '#C4884A'; ctx.font = '10px Georgia, serif';
-    ctx.fillText('78°F habitability', geo.x1 - 100, y - 4);
-  }
+    ctx.fillStyle = ref.color;
+    ctx.fillText(ref.label, geo.x1 - ctx.measureText(ref.label).width - 4, y - 4);
+  });
 
   // ── Annotation lines ──
   EVENTS.forEach(ev => {
@@ -785,8 +869,8 @@ function draw() {
 
   // ── Sensor lines ──
   const datasets = [
-    ...SENSORS.map(s => ({ ...s, data: DATA.sensors[s.key], dash: [] })),
-    { ...OUTDOOR, data: DATA.outdoor, dash: [6, 5] },
+    ...SENSORS.map(s => ({ ...s, data: m.sensors[s.key], dash: [] })),
+    { ...OUTDOOR, data: m.outdoor, dash: [6, 5] },
   ];
 
   datasets.forEach(ds => {
@@ -839,9 +923,9 @@ function draw() {
   ctx.fillStyle = '#9A8A76';
   ctx.font = '11px Georgia, serif';
   ctx.textAlign = 'right';
-  for (let t = Math.ceil(lo / 5) * 5; t <= hi; t += 5) {
+  for (let t = Math.ceil(lo / m.step) * m.step; t <= hi; t += m.step) {
     const y = vToY(t, geo, lo, hi);
-    ctx.fillText(t + '°', geo.x0 - 6, y + 4);
+    ctx.fillText(t + m.axisSuffix, geo.x0 - 6, y + 4);
   }
 
   // ── X axis labels ──
@@ -872,15 +956,16 @@ function drawTooltip(geo, lo, hi) {
   const x0 = iToX(hoverIdx, geo);
 
   // Build rows
+  const m = M();
   const rows = [];
   SENSORS.forEach(s => {
     if (!vis[s.key]) return;
-    const v = DATA.sensors[s.key][hoverIdx];
-    if (v != null) rows.push({ color: s.color, name: s.label.split(' ')[0], val: v.toFixed(1) + '°F' });
+    const v = m.sensors[s.key][hoverIdx];
+    if (v != null) rows.push({ color: s.color, name: s.label.split(' ')[0], val: v.toFixed(m.decimals) + m.unit });
   });
   if (vis.outdoor) {
-    const v = DATA.outdoor[hoverIdx];
-    if (v != null) rows.push({ color: OUTDOOR.color, name: 'Outdoor', val: v.toFixed(1) + '°F' });
+    const v = m.outdoor[hoverIdx];
+    if (v != null) rows.push({ color: OUTDOOR.color, name: 'Outdoor', val: v.toFixed(m.decimals) + m.unit });
   }
   if (!rows.length) return;
 
